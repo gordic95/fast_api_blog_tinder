@@ -1,0 +1,16 @@
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import String, Integer, ForeignKey
+
+from database.base import engine, Base
+
+
+class Post(Base):
+    __tablename__ = 'posts'
+
+
+    id : Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(50))
+    content: Mapped[str] = mapped_column(String(255))
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'))
+    author: Mapped['User'] = relationship(back_populates="posts")
+
