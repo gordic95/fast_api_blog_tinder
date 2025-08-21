@@ -17,3 +17,4 @@ class Token(BaseModel):
     """Класс для хранения токена"""
     access_token: str
     token_type: str
+    refresh_token: str | None

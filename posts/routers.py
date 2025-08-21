@@ -8,6 +8,9 @@ from database.base import get_db
 from . scheme import PostCreate
 from users.models import User
 
+from users.routers import get_current_user
+from users.scheme import UserCreate
+
 
 # routers = APIRouter(prefix="/posts", tags=["Посты"])
 def register_posts_routers() -> APIRouter:
@@ -15,7 +18,7 @@ def register_posts_routers() -> APIRouter:
 
     @routers.get("/get")
     async def get_posts(db: Session = Depends(get_db)):
-        """Получение всех постов"""
+        """Получение всех постов, смотреть могут все пользователи"""
         if len(db.query(Post).all()) <= 0:
             return {"Message": "Постов нет"}
         else:
@@ -24,19 +27,23 @@ def register_posts_routers() -> APIRouter:
 
     @routers.get("/get/{id}")
     async def get_post(id: int, db: Session = Depends(get_db)):
+        """Получение поста по id, смотреть могут все пользователи"""
         if len(db.query(Post).filter(Post.id == id).all()) <= 0:
             return {"Message": "Поста нет"}
         else:
             post = db.query(Post).filter(Post.id == id).first()
             return post
 
+
+#нужно доработать
     @routers.post("/create")
-    async def create_post(post: PostCreate, db: Session = Depends(get_db)):
-        """Создание поста"""
+    async def create_post(post: PostCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+        """Создание поста, только для авторизованных пользователей"""
         new_post = Post(
             title=post.title,
             content=post.content,
-            user_id=post.user_id
+
+            user_id=current_user.id
         )
         users = db.query(User).all()
         for user in users:
@@ -45,8 +52,8 @@ def register_posts_routers() -> APIRouter:
                 db.commit()
                 db.refresh(new_post)
                 return new_post
-            else:
-                return {"Message": "Пользователя нет"}
+        else:
+            return {"Message": "Пользователя нет"}
 
 
 

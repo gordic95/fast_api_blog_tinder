@@ -1,13 +1,13 @@
-# import requests
-#
-# url = "http://127.0.0.1:8000/users/me"
-#
-# YOUR_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzdHJpbmciLCJleHAiOjE3NTUzNzA3NDR9.KW7t37tDxa9MwwsYe1boFlshoZcSDh5XP8yIUqnYbYw"
-# headers = {
-#     "Authorization": f"Bearer {YOUR_ACCESS_TOKEN}",
-# }
-# response = requests.get(url, headers=headers)
-# print(response.json())
+import requests
+
+url = "http://127.0.0.1:8000/users/me"
+
+YOUR_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJuaWtpdGEiLCJleHAiOjE3NTU1MjM4MDl9.9ZaqNPxIDmo3zM-LiXsaNPxDB9fHRx1nufeya3EVIS8"
+headers = {
+    "Authorization": f"Bearer {YOUR_ACCESS_TOKEN}",
+}
+response = requests.get(url, headers=headers)
+print(response.json())
 
 # from fastapi.testclient import TestClient
 # from main import app  # импортируйте ваше приложение FastAPI
