@@ -1,69 +1,24 @@
-from typing import Optional
 from fastapi import HTTPException, status
-from fastapi import APIRouter, Depends, Security
+from fastapi import APIRouter, Depends
 from database.base import get_db # импортируем функцию для получения соединения с БД
 from . models import User
 from sqlalchemy.orm import Session # импортируем класс для работы с сессиями
 from .scheme import UserInDB, UserCreate, Token
-from .utils import get_password_hash, verify_password
-from datetime import datetime, timedelta
-from jose import jwt, JWTError
+from .utils import get_password_hash, verify_password, create_access_token, create_refresh_token, get_current_user, \
+    decode_token, check_token_expiration
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import redis
 from decouple import config
-
-# подключаемся к локальному экземпляру Redis
-redis_client = redis.Redis(host='localhost', port=6379, db=0)
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="users/login/")
+from . config import REDIS_CLIENT, OAUTH2_SCHEME
 
 
-SECRET_KEY = config('SECRET_KEY')
-ALGORITHM = config("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(config("ACCESS_TOKEN_EXPIRE_MINUTES"))
-REFRESH_TOKEN_EXPIRES_DAYS = int(config("REFRESH_TOKEN_EXPIRES_DAYS"))
 
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-
-def create_refresh_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=REFRESH_TOKEN_EXPIRES_DAYS)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    """Функция для получения текущего пользователя"""
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM]) # декодируем токен
-        username = payload.get("sub") # получаем имя пользователя из токена
-
-        if redis_client.exists(f"blacklist_{token}") > 0: # проверяем, есть ли токен в черном списке
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Токен не действителен."
-            ) # если токен в черном списке, возвращаем ошибку
-
-        user = db.query(User).filter(User.username == username).first() # получаем пользователя из БД
-        if user is None: # если пользователь не найден, возвращаем ошибку
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Не авторизированный доступ.")
-        return user # если все ок, возвращаем пользователя
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный токен.")
 
 #---------------------------------------------------------------------------------------------
 def register_users_routers() -> APIRouter:
     routers = APIRouter(prefix="/users", tags=["Пользователи"])
 
-    @routers.post("/register/", response_model=UserInDB)
+    @routers.post("/register/")
     async def register(user_data: UserCreate, db: Session = Depends(get_db)):
         """функция регистрации пользователя"""
         existing_user = db.query(User).filter(User.username == user_data.username).first()
@@ -75,7 +30,7 @@ def register_users_routers() -> APIRouter:
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
-        return {"message": "Пользователь успешно зарегистрирован"}
+        return {"status_code": status.HTTP_201_CREATED, "message": "Пользователь успешно создан."}
 
 
     @routers.post("/login/", response_model=Token)
@@ -98,9 +53,9 @@ def register_users_routers() -> APIRouter:
 
 
     @routers.post("/logout")
-    async def logout(token: str = Depends(oauth2_scheme)):
+    async def logout(token: str = Depends(OAUTH2_SCHEME)):
         """Функция для выхода из аккаунта"""
-        redis_client.setex(f"blacklist:{token}", ACCESS_TOKEN_EXPIRE_MINUTES, 0)
+        REDIS_CLIENT.setex(f"blacklist:{token}", ACCESS_TOKEN_EXPIRE_MINUTES, 0)
         return {"detail": "Вы успешно вышли из аккаунта."}
 
 
@@ -118,6 +73,31 @@ def register_users_routers() -> APIRouter:
         if db:
             users = db.query(User).all()
             return users
+
+    @routers.post("/refresh-token/", response_model=Token)
+    async def refresh_tokens(refresh_token: str, db: Session = Depends(get_db)):
+        """Обновление токенов с помощью refresh token."""
+        decoded_payload = decode_token(refresh_token)
+        if not decoded_payload:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token недействителен.")
+
+        # Проверяем, не истек ли refresh token
+        if not check_token_expiration(decoded_payload):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Срок действия refresh token истек.")
+
+        username = decoded_payload["sub"]
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Пользователь не найден.")
+
+        # Генерируем новые токены
+        new_access_token = create_access_token(data={"sub": username})
+        new_refresh_token = create_refresh_token(data={"sub": username})
+        return {
+            "access_token": new_access_token,
+            "token_type": "bearer",
+            "refresh_token": new_refresh_token
+        }
 
     return routers
 
